@@ -1,0 +1,26 @@
+---
+title: "Impact of major weather events in the US"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+
+
+## Data Processing
+
+```{r}
+
+if(!file.exists("storm_data.csv.bz2")){
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "storm_data.csv.bz2")
+}
+
+storm_data <- read.csv("storm_data.csv.bz2")
+
+```
+
+Data was downloaded from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database on the `r format.Date(Sys.Date(),"%m/%d/%Y")`. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
