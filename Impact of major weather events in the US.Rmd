@@ -5,6 +5,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
 ```
 
 ## Synopsis
@@ -19,7 +20,36 @@ if(!file.exists("storm_data.csv.bz2")){
   download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", "storm_data.csv.bz2")
 }
 
-storm_data <- read.csv("storm_data.csv.bz2")
+storm_data <- read.csv("storm_data.csv.bz2",stringsAsFactors = FALSE)
+
+
+
+##### Transform beginning date time
+
+##### Date can be found in the 'BGN_DATE' field. However, it is coded as a character field with time strings in 0. Thus, I've splited the string, to get only the date (that are before the space in MM/DD/YYYY format), and discart the time string that comes after and has all 0.
+
+storm_data$BGN_DATE_2 <- sapply(strsplit(as.character(storm_data$BGN_DATE)," "), getElement, 1)
+
+
+##### Time can be found in the 'BGN_TIME' field. However, older records are coded in 0600 format, while later records are recorder in 12:00:00 AM/PM format. Thus, i've made nested if_else statements to treat each format separately and end with all the records coded in the same HH:MM format.
+
+##### At the same time, it appears to be some problems in the quality of the raw data, for there are some fields that contain hours like "1580", "2090", etc. Also some hours are coded in a 24 hrs format with AM/PM tag (example: 23:35:00 PM	). In this former cases, I won't take into accoun the AM-PM information and I'll treat the hour as in a 24 hr format.
+
+storm_data$BGN_TIME_2 <- if_else(!str_detect(storm_data$BGN_TIME,pattern=":"),
+                                true = paste0(str_sub(storm_data$BGN_TIME,1,2), ":", str_sub(storm_data$BGN_TIME,3,4)),
+                                false = if_else(str_detect(storm_data$BGN_TIME,pattern = "PM") & as.double(str_sub(storm_data$BGN_TIME,1,2))<=12,
+                                                true=if_else(as.double(str_sub(storm_data$BGN_TIME,1,2))==12,
+                                                            true=paste0("00",str_sub(storm_data$BGN_TIME,3,5)),
+                                                            false=paste0(as.double(str_sub(storm_data$BGN_TIME,1,2))+12,
+                                                                         str_sub(storm_data$BGN_TIME,3,5))),
+                                                false=paste0(str_sub(storm_data$BGN_TIME,1,5))))
+
+
+##### Finally, i've used both fields and created a properlly coded POSIXct format date field.
+
+storm_data$BGN_DATE_TIME <- as.POSIXct(paste(storm_data$BGN_DATE_2,storm_data$BGN_TIME_2),format = "%m/%d/%Y %H:%M")
+
+
 
 ```
 
