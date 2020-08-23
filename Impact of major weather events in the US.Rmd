@@ -4,15 +4,28 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
+
 ```
 
 ## Synopsis
 
-
+The present work aims to answer the impact of storms and other severe weather conditions on the US society. The analysis will consider both public health and economic problems for the affected communities. This document will let us see which types of events are most harmful.
 
 ## Data Processing
+
+First of all, let's load the libraries that are neccesary for the analysis.
+
+```{r}
+
+library(tidyverse)
+library(lubridate)
+library(janitor)
+
+```
+
+Afterwards, it's time to download the raw data. It was downloaded from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database on the `r format.Date(Sys.Date(),"%m/%d/%Y")`. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
 
 ```{r}
 
@@ -22,18 +35,22 @@ if(!file.exists("storm_data.csv.bz2")){
 
 storm_data <- read.csv("storm_data.csv.bz2",stringsAsFactors = FALSE)
 
+```
+
+Once the data is loaded in R, it needs several cleansing and transformations. First of all, let's focus on the date the weather event began. For this let's consider the following steps:
+
+* Date can be found in the 'BGN_DATE' field. However, it is coded as a character field with time strings in 0. Thus, I've splited the string, to get only the date (that are before the space in MM/DD/YYYY format), and discart the time string that comes after and has all 0.
 
 
-##### Transform beginning date time
-
-##### Date can be found in the 'BGN_DATE' field. However, it is coded as a character field with time strings in 0. Thus, I've splited the string, to get only the date (that are before the space in MM/DD/YYYY format), and discart the time string that comes after and has all 0.
+```{r}
 
 storm_data$BGN_DATE_2 <- sapply(strsplit(as.character(storm_data$BGN_DATE)," "), getElement, 1)
 
+```
 
-##### Time can be found in the 'BGN_TIME' field. However, older records are coded in 0600 format, while later records are recorder in 12:00:00 AM/PM format. Thus, i've made nested if_else statements to treat each format separately and end with all the records coded in the same HH:MM format.
+* Time can be found in the 'BGN_TIME' field. However, older records are coded in 0600 format, while later records are recorder in 12:00:00 AM/PM format. Thus, i've made nested if_else statements to treat each format separately and end with all the records coded in the same HH:MM format. At the same time, it appears to be some problems in the quality of the raw data, for there are some fields that contain hours like "1580", "2090", etc. Also some hours are coded in a 24 hrs format with AM/PM tag (example: 23:35:00 PM	). In this former cases, I won't take into accoun the AM-PM information and I'll treat the hour as in a 24 hr format.
 
-##### At the same time, it appears to be some problems in the quality of the raw data, for there are some fields that contain hours like "1580", "2090", etc. Also some hours are coded in a 24 hrs format with AM/PM tag (example: 23:35:00 PM	). In this former cases, I won't take into accoun the AM-PM information and I'll treat the hour as in a 24 hr format.
+```{r}
 
 storm_data$BGN_TIME_2 <- if_else(!str_detect(storm_data$BGN_TIME,pattern=":"),
                                 true = paste0(str_sub(storm_data$BGN_TIME,1,2), ":", str_sub(storm_data$BGN_TIME,3,4)),
@@ -45,12 +62,116 @@ storm_data$BGN_TIME_2 <- if_else(!str_detect(storm_data$BGN_TIME,pattern=":"),
                                                 false=paste0(str_sub(storm_data$BGN_TIME,1,5))))
 
 
-##### Finally, i've used both fields and created a properlly coded POSIXct format date field.
-
 storm_data$BGN_DATE_TIME <- as.POSIXct(paste(storm_data$BGN_DATE_2,storm_data$BGN_TIME_2),format = "%m/%d/%Y %H:%M")
+```
 
+Then, I select the variables of the data set that are relevant to the analysis, and save them into the data set "storm_analysis". On this object, I've calculated the impact on:
 
+* Population health: considered as the sum of injuries and fatalities 
+
+* Economic impact: considered as the sum of property and crop damage
+
+```{r}
+
+storm_analysis <- storm_data %>% select(BGN_DATE_TIME,STATE,EVTYPE,FATALITIES,INJURIES,PROPDMG,CROPDMG) %>% 
+                                 mutate(STATE=as_factor(STATE),
+                                        POP_HEALTH=FATALITIES+INJURIES,
+                                        ECON_IMPACT=PROPDMG,CROPDMG)
 
 ```
 
-Data was downloaded from the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database on the `r format.Date(Sys.Date(),"%m/%d/%Y")`. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+To finish data cleansing, let's take a look on the weather events that were registered. It can be said that there are many classifications, but impact on communities is concentrated on a few. Thus, I'll mantain the label of those events that, altogether, explain more than 90% of the impact on public health or economy, groupin the rest with the label "others". Finally, I'll create a variable that shows if a given event had impact, for clasication purposes.
+
+```{r}
+n_distinct(storm_analysis$EVTYPE)
+
+pop_health_main_events <- storm_analysis %>% 
+                          group_by(EVTYPE) %>% 
+                          summarise(N_OF_EVENTS=n(),
+                                    FATALITIES=sum(FATALITIES),
+                                    INJURIES=sum(INJURIES),
+                                    POP_HEALTH=sum(POP_HEALTH)) %>% 
+                          mutate(POP_HEALTH_REL=POP_HEALTH/sum(POP_HEALTH)) %>% 
+                          arrange(desc(POP_HEALTH_REL)) %>%
+                          mutate(POP_HEALTH_CUM=cumsum(POP_HEALTH_REL)) %>%
+                          filter(POP_HEALTH_CUM<=0.9)
+
+
+econ_impact_main_events <- storm_analysis %>%
+                           group_by(EVTYPE) %>% 
+                           summarise(N_OF_EVENTS=n(),
+                                     PROPDMG=sum(PROPDMG),
+                                     CROPDMG=sum(CROPDMG),
+                                     ECON_IMPACT=sum(ECON_IMPACT)) %>%
+                           mutate(ECON_IMPACT_REL=ECON_IMPACT/sum(ECON_IMPACT)) %>%
+                           arrange(desc(ECON_IMPACT_REL)) %>%
+                           mutate(ECON_IMPACT_CUM=cumsum(ECON_IMPACT_REL)) %>%
+                           filter(ECON_IMPACT_CUM<=0.9)
+
+
+
+storm_analysis <- storm_analysis %>% mutate(EVENT=if_else(EVTYPE %in% pop_health_main_events$EVTYPE  |
+                                                           EVTYPE %in% econ_impact_main_events$EVTYPE,
+                                                           true = EVTYPE,
+                                                           false="OTHERS")) %>% 
+                                         mutate(EVENT=as_factor(EVENT),
+                                                IMPACT=case_when(POP_HEALTH==0 & ECON_IMPACT==0 ~ "No impact",
+                                                                 POP_HEALTH==0 & ECON_IMPACT>0 ~ "Econ impact",
+                                                                 POP_HEALTH>0 & ECON_IMPACT==0 ~ "Health impact",
+                                                                 POP_HEALTH>0 & ECON_IMPACT>0 ~ "Both impacts"))
+                                                
+```
+
+## Results
+
+In this section, I'll will focus on answering the following questions:
+
+1 Across the United States, which types of events are most harmful with respect to population health?
+
+2 Across the United States, which types of events have the greatest economic consequences?
+
+But first, let's look at the overrall impact of events registered by the NOAA.
+
+```{r}
+
+impact_by_year <- storm_analysis %>% mutate(year=year(BGN_DATE_TIME)) %>% group_by(year,IMPACT) %>% summarise(Nr_events=n()) 
+
+ggplot(impact_by_year,aes(year,Nr_events,color=IMPACT))+geom_line()
+
+impact_by_year %>% pivot_wider(names_from=IMPACT,values_from=Nr_events) %>% adorn_totals(where = c("row","col"))
+
+```
+
+The previous table and plot shows a pronounced growth on the number of events since the '90. This is probably mainly because how data is collected, but it is interesting to point out that there a considerably more amount of events with economic rather than with health impact.
+
+After that, let answer the first of our questions: which types of events are most harmful with respect to population health?
+
+```{r}
+
+ggplot(storm_analysis,aes(fct_reorder(EVENT,POP_HEALTH,sum),POP_HEALTH))+geom_col(color="red")+
+  labs(title = "Impact on population health due to weather events during 1950-2011",
+       y="Lives affected",
+       x="Weather event")+
+  scale_y_continuous(labels = scales::number_format()) + 
+  coord_flip()
+
+```
+
+As it can be seen, Tornados were more harmfull with respect to population health.
+
+
+Finally, let's answer the last of our questions:which types of events have the greatest economic consequences?
+
+```{r}
+
+ggplot(storm_analysis,aes(fct_reorder(EVENT,ECON_IMPACT,sum),ECON_IMPACT))+geom_col(color="red")+
+  labs(title = "Economic consequences due to weather events during 1950-2011",
+       y="Economic loss",
+       x="Weather event")+
+  scale_y_continuous(labels = scales::dollar_format()) + 
+  coord_flip()
+
+```
+
+As it can be seen, economic losses were mainly by Tornados.
+
